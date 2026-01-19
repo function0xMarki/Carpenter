@@ -57,20 +57,20 @@ chmod +x carpenter.py
 
 ```bash
 # Dividir en 3 partes sin comprimir (.part)
-python3 carpenter.py archivo.jpg -cut 3
+python3 carpenter.py -cut 3 archivo.jpg
 
 # Dividir en 5 partes con compresión ZIP
-python3 carpenter.py archivo.jpg -cut 5 -zip
+python3 carpenter.py -cut 5 -zip archivo.jpg
 
 # Dividir en 3 partes y contraseña (AES-256) "Generará obligatoriamente ZIP) 
-python3 carpenter.py archivo.jpg -cut 3 -passwd
+python3 carpenter.py -cut 3 archivo.jpg -passwd
 ```
 
 ### Unir archivos (-glue)
 
 ```bash
 # Unir partes .part
-python3 carpenter.py archivo_0.part -glue
+python3 carpenter.py -glue archivo_0.part
 
 # Unir partes .zip (detecta automáticamente si requiere contraseña)
 python3 carpenter.py archivo_0.zip -glue
