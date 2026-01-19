@@ -556,16 +556,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos de uso:
-  %(prog)s archivo.jpg -cut 3              Divide en 3 partes (.part)
-  %(prog)s archivo.jpg -cut 3 -zip         Divide en 3 partes (.zip sin contraseña)
-  %(prog)s archivo.jpg -cut 3 -passwd      Divide en 3 partes (.zip con contraseña)
+  %(prog)s -cut 3 archivo.jpg              Divide en 3 partes (.part)
+  %(prog)s -cut 3 -zip archivo.jpg         Divide en 3 partes (.zip sin contraseña)
+  %(prog)s -cut 3 -passwd archivo.jpg      Divide en 3 partes (.zip con contraseña)
 
-  %(prog)s archivo_01.part -glue           Une archivos .part
-  %(prog)s archivo_01.zip -glue            Une archivos .zip (detecta contraseña automáticamente)
+  %(prog)s -glue archivo_01.part           Une archivos .part
+  %(prog)s -glue archivo_01.zip            Une archivos .zip (detecta contraseña automáticamente)
         """
     )
-
-    parser.add_argument("file", help="Archivo a procesar")
 
     # Mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group(required=True)
@@ -579,6 +577,9 @@ Ejemplos de uso:
                        help="Comprimir partes en ZIP (solo con -cut)")
     parser.add_argument("-passwd", action="store_true",
                        help="Usar contraseña (solo con -cut, implica -zip)")
+
+    # File argument (positional, at the end)
+    parser.add_argument("file", help="Archivo a procesar")
 
     args = parser.parse_args()
 
