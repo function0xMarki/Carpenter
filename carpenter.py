@@ -116,8 +116,8 @@ def get_password(confirm=True):
         return password
 
 
-def split_file(filepath, num_parts, use_zip=False, use_password=False):
-    """Split a file into multiple parts."""
+def split_file(filepath):
+    """Split a file into multiple parts (interactive mode)."""
     filepath = Path(filepath)
 
     if not filepath.exists():
@@ -133,9 +133,18 @@ def split_file(filepath, num_parts, use_zip=False, use_password=False):
         print("Error: El archivo está vacío.")
         return False
 
-    if num_parts < 2:
-        print("Error: El número de partes debe ser al menos 2.")
-        return False
+    # Ask for number of parts
+    while True:
+        try:
+            num_parts_str = input("¿En cuántos fragmentos dividir? ").strip()
+            num_parts = int(num_parts_str)
+            if num_parts < 2:
+                print("Error: El número de partes debe ser al menos 2.")
+                continue
+            break
+        except ValueError:
+            print("Error: Introduce un número válido.")
+            continue
 
     # Calculate part size
     part_size = file_size // num_parts
@@ -143,10 +152,16 @@ def split_file(filepath, num_parts, use_zip=False, use_password=False):
         print(f"Error: El archivo es demasiado pequeño para dividir en {num_parts} partes.")
         return False
 
+    # Ask if user wants password protection
+    use_password_response = input("¿Proteger con contraseña? (s/n): ").strip().lower()
+    use_password = use_password_response in ['s', 'si', 'sí', 'y', 'yes']
+
     # Determine extension and get password if needed
-    extension = ".zip" if use_zip or use_password else ".part"
+    extension = ".zip" if use_password else ".part"
     password = None
     if use_password:
+        if not check_7z_installed():
+            return False
         password = get_password(confirm=True)
 
     # Generate output filenames (includes part 0 for MD5)
@@ -373,10 +388,10 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
             temp_dir = md5_part_path.parent / ".temp_extract_md5"
             temp_dir.mkdir(exist_ok=True)
 
-            cmd = ["7z", "e", "-bso0", "-bsp0", f"-o{temp_dir}", "-y"]
-            if password:
-                cmd.insert(2, f"-p{password}")
-            cmd.append(str(md5_part_path))
+            # Always use -p flag to prevent 7z from waiting for interactive input
+            # Empty password (-p) will fail on encrypted files, which we detect
+            pwd_flag = f"-p{password}" if password else "-p"
+            cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(md5_part_path)]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -488,10 +503,9 @@ def join_files(first_file):
                     temp_dir = part_path.parent / ".temp_extract"
                     temp_dir.mkdir(exist_ok=True)
 
-                    cmd = ["7z", "e", "-bso0", "-bsp0", f"-o{temp_dir}", "-y"]
-                    if password:
-                        cmd.insert(2, f"-p{password}")
-                    cmd.append(str(part_path))
+                    # Always use -p flag to prevent 7z from waiting for interactive input
+                    pwd_flag = f"-p{password}" if password else "-p"
+                    cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(part_path)]
 
                     result = subprocess.run(cmd, capture_output=True)
 
@@ -542,7 +556,21 @@ def join_files(first_file):
                 return False
 
         print()
-        print("¡Completado!")
+
+        # Ask if user wants to delete the fragment files
+        response = input("¿Eliminar los archivos fragmentados? (s/n): ").strip().lower()
+        if response in ['s', 'si', 'sí', 'y', 'yes']:
+            print()
+            print("Eliminando fragmentos...")
+            for fragment in sequence_files:
+                try:
+                    fragment.unlink()
+                    print(f"  - {fragment.name} eliminado")
+                except OSError as e:
+                    print(f"  - Error al eliminar {fragment.name}: {e}")
+            print()
+            print("Fragmentos eliminados.")
+
         return True
 
     except IOError as e:
@@ -556,51 +584,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos de uso:
-  %(prog)s -cut 3 archivo.jpg              Divide en 3 partes (.part)
-  %(prog)s -cut 3 -zip archivo.jpg         Divide en 3 partes (.zip sin contraseña)
-  %(prog)s -cut 3 -passwd archivo.jpg      Divide en 3 partes (.zip con contraseña)
-
-  %(prog)s -glue archivo_01.part           Une archivos .part
-  %(prog)s -glue archivo_01.zip            Une archivos .zip (detecta contraseña automáticamente)
+  %(prog)s -cut archivo.jpg           Divide archivo (modo interactivo)
+  %(prog)s -glue archivo_01.part      Une archivos fragmentados
         """
     )
 
     # Mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument("-cut", type=int, metavar="N",
-                           help="Dividir archivo en N partes")
+    mode_group.add_argument("-cut", action="store_true",
+                           help="Dividir archivo (modo interactivo)")
     mode_group.add_argument("-glue", action="store_true",
                            help="Unir archivos fragmentados")
-
-    # Optional arguments (only for -cut)
-    parser.add_argument("-zip", action="store_true",
-                       help="Comprimir partes en ZIP (solo con -cut)")
-    parser.add_argument("-passwd", action="store_true",
-                       help="Usar contraseña (solo con -cut, implica -zip)")
 
     # File argument (positional, at the end)
     parser.add_argument("file", help="Archivo a procesar")
 
     args = parser.parse_args()
 
-    # Validate arguments
-    if args.glue:
-        if args.zip:
-            print("Advertencia: -zip se ignora con -glue (se detecta automáticamente)")
-        if args.passwd:
-            print("Advertencia: -passwd se ignora con -glue (se detecta automáticamente)")
-
     if args.cut:
-        # Check if 7z is needed
-        if (args.zip or args.passwd) and not check_7z_installed():
-            sys.exit(1)
-
-        success = split_file(
-            args.file,
-            args.cut,
-            use_zip=args.zip,
-            use_password=args.passwd
-        )
+        success = split_file(args.file)
     else:
         success = join_files(args.file)
 
