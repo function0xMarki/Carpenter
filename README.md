@@ -1,8 +1,6 @@
 # Carpenter
 
-Herramienta de línea de comandos para dividir archivos en múltiples partes y reconstruirlos posteriormente.
-
-Soporta compresión ZIP con cifrado AES-256.
+Herramienta de línea de comandos para dividir archivos en múltiples partes y reconstruirlos posteriormente. Soporta compresión ZIP con cifrado AES-256.
 
 ## Características
 
@@ -11,12 +9,13 @@ Soporta compresión ZIP con cifrado AES-256.
 - Verificación de integridad mediante MD5 (automática)
 - Detecta automáticamente todas las partes de una secuencia
 - Detecta automáticamente si los archivos ZIP requieren contraseña
-- Contraseña solicitada de forma interactiva (no visible en terminal)
+- Modo completamente interactivo
+- Opción de eliminar fragmentos después de reconstruir
 
 ## Requisitos
 
 - Python 3.6+
-- `p7zip` (solo si se usa compresión ZIP)
+- `p7zip` (solo si se usa protección con contraseña)
 
 ### Instalar p7zip
 
@@ -56,28 +55,30 @@ chmod +x carpenter.py
 ### Dividir archivos (-cut)
 
 ```bash
-# Dividir en 3 partes sin comprimir (.part)
-python3 carpenter.py -cut 3 archivo.jpg
-
-# Dividir en 5 partes con compresión ZIP
-python3 carpenter.py -cut 5 -zip archivo.jpg
-
-# Dividir en 3 partes y contraseña (AES-256) "Generará obligatoriamente ZIP) 
-python3 carpenter.py -cut 3 archivo.jpg -passwd
+python3 carpenter.py -cut archivo.jpg
 ```
+
+El script preguntará interactivamente:
+1. ¿En cuántos fragmentos dividir?
+2. ¿Proteger con contraseña? (s/n)
+   - Si es **sí**: pide contraseña y confirmación, genera archivos `.zip` con AES-256
+   - Si es **no**: genera archivos `.part` sin comprimir
 
 ### Unir archivos (-glue)
 
 ```bash
-# Unir partes .part
-python3 carpenter.py -glue archivo_0.part
-
-# Unir partes .zip (detecta automáticamente si requiere contraseña)
-python3 carpenter.py archivo_0.zip -glue
+python3 carpenter.py -glue archivo_01.part
 ```
 
-> **Nota:** Puedes especificar cualquier parte de la secuencia (no necesariamente la parte 0). El script encontrará automáticamente todas las partes.
+> **Nota:** Puedes especificar cualquier parte de la secuencia (no necesariamente la parte 0). El script encontrará automáticamente todas las partes y detectará si necesita contraseña.
 
+Al finalizar, preguntará si deseas eliminar los fragmentos.
+
+### Ver ayuda
+
+```bash
+python3 carpenter.py --help
+```
 
 ## Estructura de archivos generados
 
@@ -92,22 +93,17 @@ Al dividir `foto.jpg` en 3 partes:
 
 La parte `_0` contiene metadatos para verificar la integridad y restaurar el nombre original del archivo.
 
-
 ## Opciones
 
 | Argumento | Descripción |
 |-----------|-------------|
-| `-cut N` | Divide el archivo en N partes |
+| `-cut` | Divide el archivo (modo interactivo) |
 | `-glue` | Une las partes en el archivo original |
-| `-zip` | Comprime cada parte en formato ZIP (solo con `-cut`) |
-| `-passwd` | Solicita contraseña para cifrar (solo con `-cut`, implica `-zip`) |
-
-> **Nota:** Con `-glue` no es necesario especificar `-zip` ni `-passwd`. El script detecta automáticamente el formato y si requiere contraseña.
 
 ## Seguridad
 
 - Las contraseñas se solicitan de forma interactiva y no se muestran en pantalla
-- Al dividir con `-passwd`, se pide confirmación de contraseña
+- Al dividir con contraseña, se pide confirmación
 - Al unir, se detecta automáticamente si el archivo requiere contraseña
 - El cifrado utiliza AES-256 mediante 7-Zip
 - El checksum MD5 permite verificar que el archivo no ha sido modificado
