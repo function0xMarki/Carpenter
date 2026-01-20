@@ -41,23 +41,23 @@ def check_7z_installed():
 
     os_type = get_os_info()
 
-    print("Error: 7z no está instalado.")
+    print("Error: 7z is not installed.")
     print()
 
     if os_type == "macos":
-        print("Para instalar en macOS, ejecuta:")
+        print("To install on macOS, run:")
         print("  brew install p7zip")
     elif os_type == "linux":
-        print("Para instalar en Linux (Debian/Ubuntu), ejecuta:")
+        print("To install on Linux (Debian/Ubuntu), run:")
         print("  sudo apt install p7zip-full")
         print()
-        print("Para instalar en Linux (Fedora/RHEL), ejecuta:")
+        print("To install on Linux (Fedora/RHEL), run:")
         print("  sudo dnf install p7zip p7zip-plugins")
         print()
-        print("Para instalar en Linux (Arch), ejecuta:")
+        print("To install on Linux (Arch), run:")
         print("  sudo pacman -S p7zip")
     else:
-        print("Por favor, instala p7zip para tu sistema operativo.")
+        print("Please install p7zip for your operating system.")
 
     return False
 
@@ -82,8 +82,8 @@ def generate_part_names(base_name, num_parts, extension):
 def ask_overwrite(filepath):
     """Ask user if they want to overwrite an existing file."""
     if os.path.exists(filepath):
-        response = input(f"El archivo '{filepath}' ya existe. ¿Sobrescribir? (s/n): ").strip().lower()
-        return response in ['s', 'si', 'sí', 'y', 'yes']
+        response = input(f"File '{filepath}' already exists. Overwrite? (y/n): ").strip().lower()
+        return response in ['y', 'yes']
     return True
 
 
@@ -91,26 +91,26 @@ def check_existing_files(filepaths):
     """Check if any output files exist and ask for confirmation."""
     existing = [f for f in filepaths if os.path.exists(f)]
     if existing:
-        print("Los siguientes archivos ya existen:")
+        print("The following files already exist:")
         for f in existing:
             print(f"  - {f}")
-        response = input("¿Sobrescribir todos? (s/n): ").strip().lower()
-        return response in ['s', 'si', 'sí', 'y', 'yes']
+        response = input("Overwrite all? (y/n): ").strip().lower()
+        return response in ['y', 'yes']
     return True
 
 
 def get_password(confirm=True):
     """Get password interactively without showing it."""
     while True:
-        password = getpass.getpass("Introduce la contraseña: ")
+        password = getpass.getpass("Enter password: ")
         if not password:
-            print("La contraseña no puede estar vacía.")
+            print("Password cannot be empty.")
             continue
 
         if confirm:
-            password2 = getpass.getpass("Confirma la contraseña: ")
+            password2 = getpass.getpass("Confirm password: ")
             if password != password2:
-                print("Las contraseñas no coinciden. Inténtalo de nuevo.")
+                print("Passwords do not match. Try again.")
                 continue
 
         return password
@@ -121,40 +121,40 @@ def split_file(filepath):
     filepath = Path(filepath)
 
     if not filepath.exists():
-        print(f"Error: El archivo '{filepath}' no existe.")
+        print(f"Error: File '{filepath}' does not exist.")
         return False
 
     if not filepath.is_file():
-        print(f"Error: '{filepath}' no es un archivo válido.")
+        print(f"Error: '{filepath}' is not a valid file.")
         return False
 
     file_size = filepath.stat().st_size
     if file_size == 0:
-        print("Error: El archivo está vacío.")
+        print("Error: File is empty.")
         return False
 
     # Ask for number of parts
     while True:
         try:
-            num_parts_str = input("¿En cuántos fragmentos dividir? ").strip()
+            num_parts_str = input("How many parts to split into? ").strip()
             num_parts = int(num_parts_str)
             if num_parts < 2:
-                print("Error: El número de partes debe ser al menos 2.")
+                print("Error: Number of parts must be at least 2.")
                 continue
             break
         except ValueError:
-            print("Error: Introduce un número válido.")
+            print("Error: Enter a valid number.")
             continue
 
     # Calculate part size
     part_size = file_size // num_parts
     if part_size == 0:
-        print(f"Error: El archivo es demasiado pequeño para dividir en {num_parts} partes.")
+        print(f"Error: File is too small to split into {num_parts} parts.")
         return False
 
     # Ask if user wants password protection
-    use_password_response = input("¿Proteger con contraseña? (s/n): ").strip().lower()
-    use_password = use_password_response in ['s', 'si', 'sí', 'y', 'yes']
+    use_password_response = input("Protect with password? (y/n): ").strip().lower()
+    use_password = use_password_response in ['y', 'yes']
 
     # Determine extension and get password if needed
     extension = ".zip" if use_password else ".part"
@@ -173,24 +173,24 @@ def split_file(filepath):
 
     # Check for existing files
     if not check_existing_files([str(p) for p in part_paths]):
-        print("Operación cancelada.")
+        print("Operation cancelled.")
         return False
 
     # Calculate MD5 before splitting
-    print(f"Calculando MD5 de '{filepath.name}'...")
+    print(f"Calculating MD5 of '{filepath.name}'...")
     file_md5 = calculate_md5(filepath)
     print(f"  MD5: {file_md5}")
     print()
 
     # Read and split the file
-    print(f"Dividiendo '{filepath.name}' en {num_parts} partes...")
+    print(f"Splitting '{filepath.name}' into {num_parts} parts...")
 
     try:
         # Create part 0 with MD5 and original filename
         md5_part_path = part_paths[0]
         md5_content = f"{file_md5}  {original_name}\n".encode('utf-8')
 
-        print(f"  [  0.0%] Creando {md5_part_path.name} (checksum)...", end="")
+        print(f"  [  0.0%] Creating {md5_part_path.name} (checksum)...", end="")
 
         if use_password:
             temp_part = output_dir / ".temp_part_md5"
@@ -207,7 +207,7 @@ def split_file(filepath):
 
             if result.returncode != 0:
                 print(" Error!")
-                print(f"Error al comprimir: {result.stderr.decode()}")
+                print(f"Compression error: {result.stderr.decode()}")
                 return False
         else:
             with open(md5_part_path, 'wb') as pf:
@@ -231,7 +231,7 @@ def split_file(filepath):
 
                 # Progress
                 progress = (i + 1) / num_parts * 100
-                print(f"  [{progress:5.1f}%] Creando {part_path.name}...", end="")
+                print(f"  [{progress:5.1f}%] Creating {part_path.name}...", end="")
 
                 if use_password:
                     # Create temporary file for the part
@@ -252,7 +252,7 @@ def split_file(filepath):
 
                     if result.returncode != 0:
                         print(" Error!")
-                        print(f"Error al comprimir: {result.stderr.decode()}")
+                        print(f"Compression error: {result.stderr.decode()}")
                         return False
                 else:
                     # Write raw part
@@ -262,14 +262,14 @@ def split_file(filepath):
                 print(" OK")
 
         print()
-        print(f"¡Completado! Se crearon {num_parts + 1} archivos:")
+        print(f"Done! Created {num_parts + 1} files:")
         for p in part_paths:
             print(f"  - {p.name}")
 
         return True
 
     except IOError as e:
-        print(f"Error de lectura/escritura: {e}")
+        print(f"Read/write error: {e}")
         return False
 
 
@@ -280,7 +280,7 @@ def find_sequence_files(any_file):
     filepath = Path(any_file)
 
     if not filepath.exists():
-        print(f"Error: El archivo '{filepath}' no existe.")
+        print(f"Error: File '{filepath}' does not exist.")
         return None, None, None
 
     filename = filepath.stem
@@ -291,13 +291,13 @@ def find_sequence_files(any_file):
     # Expected format: basename_01.ext or basename_001.ext etc.
     parts = filename.rsplit('_', 1)
     if len(parts) != 2:
-        print(f"Error: El archivo no sigue el patrón esperado (nombre_numero{extension}).")
+        print(f"Error: File does not follow expected pattern (name_number{extension}).")
         return None, None, None
 
     base_name, num_str = parts
 
     if not num_str.isdigit():
-        print(f"Error: El archivo no sigue el patrón esperado (nombre_numero{extension}).")
+        print(f"Error: File does not follow expected pattern (name_number{extension}).")
         return None, None, None
 
     padding_width = len(num_str)
@@ -325,13 +325,13 @@ def find_sequence_files(any_file):
             break
 
     if not sequence_files:
-        print("Error: No se encontraron archivos en la secuencia.")
+        print("Error: No files found in sequence.")
         return None, None, None
 
     # Warn if part 0 (MD5) is missing
     if not has_part_0:
-        print("Advertencia: No se encontró el archivo de checksum (parte 0).")
-        print("            No se podrá verificar la integridad del archivo.")
+        print("Warning: Checksum file (part 0) not found.")
+        print("         File integrity cannot be verified.")
         print()
 
     return sequence_files, base_name, extension
@@ -438,7 +438,7 @@ def join_files(first_file):
     if is_compressed and not check_7z_installed():
         return False
 
-    print(f"Encontrados {len(sequence_files)} archivos en la secuencia:")
+    print(f"Found {len(sequence_files)} files in sequence:")
     for f in sequence_files:
         print(f"  - {f.name}")
     print()
@@ -454,31 +454,31 @@ def join_files(first_file):
 
     # If needs password, ask for it and retry
     if is_compressed and needs_password:
-        print("El archivo está protegido con contraseña.")
+        print("File is password protected.")
         password = get_password(confirm=False)
         md5_hash, stored_name, needs_password = extract_md5_info(sequence_files[0], is_compressed, password)
 
         if needs_password:
-            print("Error: Contraseña incorrecta.")
+            print("Error: Wrong password.")
             return False
 
     if md5_hash and stored_name:
         original_md5 = md5_hash
         original_name = stored_name
         data_files = sequence_files[1:]  # Skip part 0 for data reconstruction
-        print(f"Detectado checksum MD5: {original_md5}")
-        print(f"Nombre original: {original_name}")
+        print(f"Detected MD5 checksum: {original_md5}")
+        print(f"Original filename: {original_name}")
         print()
 
     # Determine output filename
     if original_name:
         output_name = original_name
-        print(f"Se usará el nombre original: {output_name}")
-        response = input("¿Cambiar nombre? (Enter para mantener, o escribe nuevo nombre): ").strip()
+        print(f"Using original filename: {output_name}")
+        response = input("Change name? (Enter to keep, or type new name): ").strip()
         if response:
             output_name = response
     else:
-        user_input = input(f"Nombre del archivo de salida (ej: {base_name}.jpg): ").strip()
+        user_input = input(f"Output filename (e.g.: {base_name}.jpg): ").strip()
         output_name = user_input if user_input else base_name
 
     output_path = Path(first_file).parent / output_name
@@ -486,17 +486,17 @@ def join_files(first_file):
     # Check if output exists
     if output_path.exists():
         if not ask_overwrite(str(output_path)):
-            print("Operación cancelada.")
+            print("Operation cancelled.")
             return False
 
     print()
-    print(f"Reconstruyendo '{output_name}'...")
+    print(f"Reconstructing '{output_name}'...")
 
     try:
         with open(output_path, 'wb') as outfile:
             for i, part_path in enumerate(data_files):
                 progress = (i + 1) / len(data_files) * 100
-                print(f"  [{progress:5.1f}%] Procesando {part_path.name}...", end="")
+                print(f"  [{progress:5.1f}%] Processing {part_path.name}...", end="")
 
                 if is_compressed:
                     # Extract from zip to temp file
@@ -513,9 +513,9 @@ def join_files(first_file):
                         print(" Error!")
                         error_msg = result.stderr.decode()
                         if "Wrong password" in error_msg or "password" in error_msg.lower():
-                            print("Error: Contraseña incorrecta.")
+                            print("Error: Wrong password.")
                         else:
-                            print(f"Error al descomprimir: {error_msg}")
+                            print(f"Decompression error: {error_msg}")
                         # Cleanup
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         output_path.unlink(missing_ok=True)
@@ -537,67 +537,67 @@ def join_files(first_file):
                 print(" OK")
 
         print()
-        print(f"Archivo reconstruido: {output_path}")
+        print(f"File reconstructed: {output_path}")
 
         # Verify MD5 if available
         if original_md5:
             print()
-            print("Verificando integridad...")
+            print("Verifying integrity...")
             reconstructed_md5 = calculate_md5(output_path)
-            print(f"  MD5 original:      {original_md5}")
-            print(f"  MD5 reconstruido:  {reconstructed_md5}")
+            print(f"  Original MD5:      {original_md5}")
+            print(f"  Reconstructed MD5: {reconstructed_md5}")
 
             if original_md5 == reconstructed_md5:
                 print()
-                print("  [OK] Integridad verificada correctamente")
+                print("  [OK] Integrity verified successfully")
             else:
                 print()
-                print("  [ERROR] Los checksums NO coinciden. El archivo puede estar corrupto.")
+                print("  [ERROR] Checksums do NOT match. File may be corrupted.")
                 return False
 
         print()
 
         # Ask if user wants to delete the fragment files
-        response = input("¿Eliminar los archivos fragmentados? (s/n): ").strip().lower()
-        if response in ['s', 'si', 'sí', 'y', 'yes']:
+        response = input("Delete fragment files? (y/n): ").strip().lower()
+        if response in ['y', 'yes']:
             print()
-            print("Eliminando fragmentos...")
+            print("Deleting fragments...")
             for fragment in sequence_files:
                 try:
                     fragment.unlink()
-                    print(f"  - {fragment.name} eliminado")
+                    print(f"  - {fragment.name} deleted")
                 except OSError as e:
-                    print(f"  - Error al eliminar {fragment.name}: {e}")
+                    print(f"  - Error deleting {fragment.name}: {e}")
             print()
-            print("Fragmentos eliminados.")
+            print("Fragments deleted.")
 
         return True
 
     except IOError as e:
-        print(f"Error de lectura/escritura: {e}")
+        print(f"Read/write error: {e}")
         return False
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Carpenter - Herramienta para dividir y unir archivos",
+        description="Carpenter - File splitter and joiner tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Ejemplos de uso:
-  %(prog)s -cut archivo.jpg           Divide archivo (modo interactivo)
-  %(prog)s -glue archivo_01.part      Une archivos fragmentados
+Examples:
+  %(prog)s -cut file.jpg           Split file (interactive mode)
+  %(prog)s -glue file_01.part      Join fragmented files
         """
     )
 
     # Mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument("-cut", action="store_true",
-                           help="Dividir archivo (modo interactivo)")
+                           help="Split file (interactive mode)")
     mode_group.add_argument("-glue", action="store_true",
-                           help="Unir archivos fragmentados")
+                           help="Join fragmented files")
 
     # File argument (positional, at the end)
-    parser.add_argument("file", help="Archivo a procesar")
+    parser.add_argument("file", help="File to process")
 
     args = parser.parse_args()
 
