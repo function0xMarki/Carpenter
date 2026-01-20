@@ -99,6 +99,7 @@ La parte `_0` contiene metadatos para verificar la integridad y restaurar el nom
 |-----------|-------------|
 | `-cut` | Divide el archivo (modo interactivo) |
 | `-glue` | Une las partes en el archivo original |
+| `-h, --help` | Muestra la ayuda |
 
 ## Seguridad
 
