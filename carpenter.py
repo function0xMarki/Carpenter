@@ -192,7 +192,7 @@ def split_file(filepath):
 
         print(f"  [  0.0%] Creando {md5_part_path.name} (checksum)...", end="")
 
-        if use_zip or use_password:
+        if use_password:
             temp_part = output_dir / ".temp_part_md5"
             with open(temp_part, 'wb') as pf:
                 pf.write(md5_content)
@@ -233,7 +233,7 @@ def split_file(filepath):
                 progress = (i + 1) / num_parts * 100
                 print(f"  [{progress:5.1f}%] Creando {part_path.name}...", end="")
 
-                if use_zip or use_password:
+                if use_password:
                     # Create temporary file for the part
                     temp_part = output_dir / f".temp_part_{i}"
                     with open(temp_part, 'wb') as pf:
