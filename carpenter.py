@@ -34,6 +34,14 @@ def get_os_info():
         return system
 
 
+def run_7z(cmd, **kwargs):
+    """Run 7z command with proper UTF-8 encoding for passwords with special chars."""
+    env = os.environ.copy()
+    env['LC_ALL'] = 'en_US.UTF-8'
+    env['LANG'] = 'en_US.UTF-8'
+    return subprocess.run(cmd, env=env, **kwargs)
+
+
 def check_7z_installed():
     """Check if 7z is installed and provide installation instructions if not."""
     if shutil.which("7z") is not None:
@@ -212,7 +220,7 @@ def split_file(filepath):
                 cmd.extend([f"-p{password}", "-mem=AES256"])
             cmd.extend([str(md5_part_path), str(temp_part)])
 
-            result = subprocess.run(cmd, capture_output=True)
+            result = run_7z(cmd, capture_output=True)
             temp_part.unlink()
 
             if result.returncode != 0:
@@ -255,7 +263,7 @@ def split_file(filepath):
                         cmd.extend([f"-p{password}", "-mem=AES256"])
                     cmd.extend([str(part_path), str(temp_part)])
 
-                    result = subprocess.run(cmd, capture_output=True)
+                    result = run_7z(cmd, capture_output=True)
 
                     # Remove temp file
                     temp_part.unlink()
@@ -353,7 +361,7 @@ def detect_original_extension(first_zip_path, password=None):
     if password:
         cmd.insert(2, f"-p{password}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_7z(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
         return None
@@ -373,14 +381,14 @@ def check_zip_needs_password(zip_path):
     """Check if a ZIP file requires a password to extract."""
     # Try to test the archive without password
     cmd = ["7z", "t", "-p", str(zip_path)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_7z(cmd, capture_output=True, text=True)
 
     # Check if it failed due to password
     output = result.stdout + result.stderr
     if "Wrong password" in output or "Enter password" in output or result.returncode != 0:
         # Try with empty password to distinguish encrypted from corrupted
         cmd_empty = ["7z", "t", "-p", str(zip_path)]
-        result_empty = subprocess.run(cmd_empty, capture_output=True, text=True)
+        result_empty = run_7z(cmd_empty, capture_output=True, text=True)
         output_empty = result_empty.stdout + result_empty.stderr
 
         if "Wrong password" in output_empty or "Cannot open encrypted" in output_empty:
@@ -403,7 +411,7 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
             pwd_flag = f"-p{password}" if password else "-p"
             cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(md5_part_path)]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = run_7z(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
                 shutil.rmtree(temp_dir, ignore_errors=True)
@@ -517,7 +525,7 @@ def join_files(first_file):
                     pwd_flag = f"-p{password}" if password else "-p"
                     cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(part_path)]
 
-                    result = subprocess.run(cmd, capture_output=True)
+                    result = run_7z(cmd, capture_output=True)
 
                     if result.returncode != 0:
                         print(" Error!")
