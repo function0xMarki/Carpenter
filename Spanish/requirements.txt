@@ -1,0 +1,11 @@
+# Carpenter - Dependencias de Python
+# ===================================
+# Este proyecto solo usa la biblioteca estándar de Python.
+# No se requieren paquetes de pip.
+
+# Dependencias del Sistema (opcional, para protección con contraseña):
+# --------------------------------------------------------------------
+# macOS:   brew install p7zip
+# Ubuntu:  sudo apt install p7zip-full
+# Fedora:  sudo dnf install p7zip p7zip-plugins
+# Arch:    sudo pacman -S p7zip
