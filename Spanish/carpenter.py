@@ -167,9 +167,14 @@ def split_file(filepath):
     # Generate output filenames (includes part 0 for MD5)
     base_name = filepath.stem
     original_name = filepath.name
-    output_dir = filepath.parent
+    output_dir = filepath.parent / base_name  # Crear subdirectorio con el nombre del archivo
     part_names = generate_part_names(base_name, num_parts, extension)
     part_paths = [output_dir / name for name in part_names]
+
+    # Verificar que el directorio de salida no sea un archivo existente
+    if output_dir.exists() and not output_dir.is_dir():
+        print(f"Error: '{output_dir}' existe pero no es un directorio.")
+        return False
 
     # Check for existing files
     if not check_existing_files([str(p) for p in part_paths]):
@@ -180,6 +185,11 @@ def split_file(filepath):
     print(f"Calculando MD5 de '{filepath.name}'...")
     file_md5 = calculate_md5(filepath)
     print(f"  MD5: {file_md5}")
+    print()
+
+    # Crear directorio de salida
+    output_dir.mkdir(exist_ok=True)
+    print(f"Directorio de salida: {output_dir}")
     print()
 
     # Read and split the file
@@ -262,7 +272,7 @@ def split_file(filepath):
                 print(" OK")
 
         print()
-        print(f"¡Completado! Se crearon {num_parts + 1} archivos:")
+        print(f"¡Completado! Se crearon {num_parts + 1} archivos en '{output_dir}':")
         for p in part_paths:
             print(f"  - {p.name}")
 
