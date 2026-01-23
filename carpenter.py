@@ -439,7 +439,7 @@ def join_files(first_file):
     """Join split files back into the original."""
     sequence_files, base_name, extension = find_sequence_files(first_file)
 
-    if sequence_files is None:
+    if sequence_files is None or extension is None:
         return False
 
     is_compressed = extension.lower() == ".zip"
