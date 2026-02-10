@@ -52,10 +52,10 @@ chmod +x carpenter.py
 
 ## Uso
 
-### Dividir archivos (-cut)
+### Dividir archivos (-split)
 
 ```bash
-python3 carpenter.py -cut archivo.jpg
+python3 carpenter.py -split archivo.jpg
 ```
 
 El script preguntará interactivamente:
@@ -64,10 +64,10 @@ El script preguntará interactivamente:
    - Si es **sí**: pide contraseña y confirmación, genera archivos `.zip` con AES-256
    - Si es **no**: genera archivos `.part` sin comprimir
 
-### Unir archivos (-glue)
+### Unir archivos (-join)
 
 ```bash
-python3 carpenter.py -glue archivo_01.part
+python3 carpenter.py -join archivo_01.part
 ```
 
 > **Nota:** Puedes especificar cualquier parte de la secuencia (no necesariamente la parte 0). El script encontrará automáticamente todas las partes y detectará si necesita contraseña.
@@ -97,8 +97,8 @@ La parte `_0` contiene metadatos para verificar la integridad y restaurar el nom
 
 | Argumento | Descripción |
 |-----------|-------------|
-| `-cut` | Divide el archivo (modo interactivo) |
-| `-glue` | Une las partes en el archivo original |
+| `-split` | Divide el archivo (modo interactivo) |
+| `-join` | Une las partes en el archivo original |
 | `-h, --help` | Muestra la ayuda |
 
 ## Seguridad
