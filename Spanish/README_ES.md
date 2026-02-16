@@ -1,4 +1,7 @@
 # Carpenter
+---
+- 🇺🇸 [English](https://github.com/function0xMarki/Carpenter/blob/main/README.md)
+---
 
 Herramienta de línea de comandos para dividir archivos en múltiples partes y reconstruirlos posteriormente. Soporta compresión ZIP con cifrado AES-256.
 
