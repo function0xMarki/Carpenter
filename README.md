@@ -1,6 +1,6 @@
 # Carpenter
 ---
-- 🇪🇸 [Español](https://github.com/function0xMarki/Carpenter/edit/main/Spanish/README_ES.md)
+- 🇪🇸 [Español](https://github.com/function0xMarki/Carpenter/blob/main/Spanish/README_ES.md)
 ---
 Command-line tool to split files into multiple parts and reconstruct them later. Supports ZIP compression with AES-256 encryption.
 
