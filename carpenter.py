@@ -34,12 +34,23 @@ def get_os_info():
         return system
 
 
-def run_7z(cmd, **kwargs):
-    """Run 7z command with proper UTF-8 encoding for passwords with special chars."""
+def run_7z(cmd, password=None, **kwargs):
+    """Run 7z command with UTF-8 environment and optional stdin password delivery."""
     env = os.environ.copy()
     env['LC_ALL'] = 'en_US.UTF-8'
     env['LANG'] = 'en_US.UTF-8'
-    return subprocess.run(cmd, env=env, **kwargs)
+
+    if password is None:
+        return subprocess.run(cmd, env=env, **kwargs)
+
+    # Keep password out of process arguments by using '-p' and stdin.
+    stdin_cmd = [("-p" if arg.startswith("-p") else arg) for arg in cmd]
+    text_mode = kwargs.get("text") or kwargs.get("universal_newlines")
+    password_input = f"{password}\n{password}\n"
+    if not text_mode:
+        password_input = password_input.encode("utf-8")
+
+    return subprocess.run(stdin_cmd, env=env, input=password_input, **kwargs)
 
 
 def check_7z_installed():
@@ -217,10 +228,10 @@ def split_file(filepath):
 
             cmd = ["7z", "a", "-tzip", "-bso0", "-bsp0"]
             if password:
-                cmd.extend([f"-p{password}", "-mem=AES256"])
+                cmd.extend(["-p", "-mem=AES256"])
             cmd.extend([str(md5_part_path), str(temp_part)])
 
-            result = run_7z(cmd, capture_output=True)
+            result = run_7z(cmd, password=password, capture_output=True)
             temp_part.unlink()
 
             if result.returncode != 0:
@@ -260,10 +271,10 @@ def split_file(filepath):
                     # Compress with 7z
                     cmd = ["7z", "a", "-tzip", "-bso0", "-bsp0"]
                     if password:
-                        cmd.extend([f"-p{password}", "-mem=AES256"])
+                        cmd.extend(["-p", "-mem=AES256"])
                     cmd.extend([str(part_path), str(temp_part)])
 
-                    result = run_7z(cmd, capture_output=True)
+                    result = run_7z(cmd, password=password, capture_output=True)
 
                     # Remove temp file
                     temp_part.unlink()
@@ -359,9 +370,9 @@ def detect_original_extension(first_zip_path, password=None):
     """Try to detect the original file extension from the first zip."""
     cmd = ["7z", "l", "-slt", str(first_zip_path)]
     if password:
-        cmd.insert(2, f"-p{password}")
+        cmd.insert(2, "-p")
 
-    result = run_7z(cmd, capture_output=True, text=True)
+    result = run_7z(cmd, password=password, capture_output=True, text=True)
 
     if result.returncode != 0:
         return None
@@ -406,12 +417,11 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
             temp_dir = md5_part_path.parent / ".temp_extract_md5"
             temp_dir.mkdir(exist_ok=True)
 
-            # Always use -p flag to prevent 7z from waiting for interactive input
-            # Empty password (-p) will fail on encrypted files, which we detect
-            pwd_flag = f"-p{password}" if password else "-p"
+            # Use -p for both modes; when password is set, run_7z sends it via stdin.
+            pwd_flag = "-p"
             cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(md5_part_path)]
 
-            result = run_7z(cmd, capture_output=True, text=True)
+            result = run_7z(cmd, password=password, capture_output=True, text=True)
 
             if result.returncode != 0:
                 shutil.rmtree(temp_dir, ignore_errors=True)
@@ -441,6 +451,37 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
 
     except Exception:
         return None, None, False
+
+
+def safe_output_path(base_dir, filename):
+    """Build a safe output path inside base_dir from an untrusted filename."""
+    candidate = (filename or "").strip()
+    if not candidate:
+        raise ValueError("Output filename cannot be empty.")
+
+    user_path = Path(candidate)
+    if user_path.is_absolute():
+        raise ValueError("Absolute output paths are not allowed.")
+
+    if len(user_path.parts) != 1:
+        raise ValueError("Output filename cannot include directory components.")
+
+    safe_name = user_path.name
+    if safe_name in {"", ".", ".."}:
+        raise ValueError("Invalid output filename.")
+
+    base_resolved = Path(base_dir).resolve()
+    output_path = (base_resolved / safe_name).resolve()
+
+    try:
+        output_path.relative_to(base_resolved)
+    except ValueError as exc:
+        raise ValueError("Output path escapes the working directory.") from exc
+
+    if output_path.exists() and output_path.is_symlink():
+        raise ValueError("Refusing to write to a symlink.")
+
+    return output_path
 
 
 def join_files(first_file):
@@ -499,7 +540,17 @@ def join_files(first_file):
         user_input = input(f"Output filename (e.g.: {base_name}.jpg): ").strip()
         output_name = user_input if user_input else base_name
 
-    output_path = Path(first_file).parent / output_name
+    base_dir = Path(first_file).parent
+    while True:
+        try:
+            output_path = safe_output_path(base_dir, output_name)
+            break
+        except ValueError as e:
+            print(f"Error: {e}")
+            output_name = input(f"Output filename (e.g.: {base_name}.jpg): ").strip()
+            if not output_name:
+                print("Operation cancelled.")
+                return False
 
     # Check if output exists
     if output_path.exists():
@@ -521,11 +572,11 @@ def join_files(first_file):
                     temp_dir = part_path.parent / ".temp_extract"
                     temp_dir.mkdir(exist_ok=True)
 
-                    # Always use -p flag to prevent 7z from waiting for interactive input
-                    pwd_flag = f"-p{password}" if password else "-p"
+                    # Use -p for both modes; when password is set, run_7z sends it via stdin.
+                    pwd_flag = "-p"
                     cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(part_path)]
 
-                    result = run_7z(cmd, capture_output=True)
+                    result = run_7z(cmd, password=password, capture_output=True)
 
                     if result.returncode != 0:
                         print(" Error!")
