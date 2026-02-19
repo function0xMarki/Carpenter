@@ -17,9 +17,16 @@ Command-line tool to split files into multiple parts and reconstruct them later.
 ## Requirements
 
 - Python 3.6+
-- `p7zip` (only if using password protection)
+- `pyzipper` (for password-protected `.zip` parts)
+- `p7zip` (optional, for interoperability checks/manual validation)
 
-### Installing p7zip
+### Installing dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### Optional: install p7zip
 
 **macOS:**
 ```bash
@@ -108,7 +115,7 @@ Part `_0` contains metadata to verify integrity and restore the original filenam
 - Passwords are requested interactively and not shown on screen
 - When splitting with password, confirmation is required
 - When joining, it automatically detects if the file requires a password
-- Encryption uses AES-256 via 7-Zip
+- Encryption uses AES-256 ZIP format via `pyzipper` (compatible with 7-Zip)
 - MD5 checksum verifies the file has not been modified
 
 ## License

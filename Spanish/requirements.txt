@@ -1,10 +1,10 @@
 # Carpenter - Dependencias de Python
 # ===================================
-# Este proyecto solo usa la biblioteca estándar de Python.
-# No se requieren paquetes de pip.
+# Requerido para dividir/unir ZIP protegidos con contraseña
+# (AES-256 compatible con 7-Zip)
+pyzipper>=0.3.6
 
-# Dependencias del Sistema (opcional, para protección con contraseña):
-# --------------------------------------------------------------------
+# Dependencia del sistema (opcional, solo para verificar interoperabilidad)
 # macOS:   brew install p7zip
 # Ubuntu:  sudo apt install p7zip-full
 # Fedora:  sudo dnf install p7zip p7zip-plugins

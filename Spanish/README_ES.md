@@ -18,9 +18,16 @@ Herramienta de línea de comandos para dividir archivos en múltiples partes y r
 ## Requisitos
 
 - Python 3.6+
-- `p7zip` (solo si se usa protección con contraseña)
+- `pyzipper` (para partes `.zip` protegidas con contraseña)
+- `p7zip` (opcional, para verificar interoperabilidad/manual)
 
-### Instalar p7zip
+### Instalar dependencias
+
+```bash
+pip install -r requirements.txt
+```
+
+### Opcional: instalar p7zip
 
 **macOS:**
 ```bash
@@ -109,7 +116,7 @@ La parte `_0` contiene metadatos para verificar la integridad y restaurar el nom
 - Las contraseñas se solicitan de forma interactiva y no se muestran en pantalla
 - Al dividir con contraseña, se pide confirmación
 - Al unir, se detecta automáticamente si el archivo requiere contraseña
-- El cifrado utiliza AES-256 mediante 7-Zip
+- El cifrado usa formato ZIP AES-256 con `pyzipper` (compatible con 7-Zip)
 - El checksum MD5 permite verificar que el archivo no ha sido modificado
 
 ## Licencia

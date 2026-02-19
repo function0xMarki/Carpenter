@@ -7,11 +7,14 @@ import argparse
 import getpass
 import hashlib
 import os
-import platform
-import shutil
-import subprocess
 import sys
+import zipfile
 from pathlib import Path
+
+try:
+    import pyzipper
+except ImportError:
+    pyzipper = None
 
 
 def calculate_md5(filepath):
@@ -23,62 +26,70 @@ def calculate_md5(filepath):
     return hash_md5.hexdigest()
 
 
-def get_os_info():
-    """Detect operating system."""
-    system = platform.system().lower()
-    if system == "darwin":
-        return "macos"
-    elif system == "linux":
-        return "linux"
-    else:
-        return system
-
-
-def run_7z(cmd, password=None, **kwargs):
-    """Run 7z command with UTF-8 environment and optional stdin password delivery."""
-    env = os.environ.copy()
-    env['LC_ALL'] = 'en_US.UTF-8'
-    env['LANG'] = 'en_US.UTF-8'
-
-    if password is None:
-        return subprocess.run(cmd, env=env, **kwargs)
-
-    # Keep password out of process arguments by using '-p' and stdin.
-    stdin_cmd = [("-p" if arg.startswith("-p") else arg) for arg in cmd]
-    text_mode = kwargs.get("text") or kwargs.get("universal_newlines")
-    password_input = f"{password}\n{password}\n"
-    if not text_mode:
-        password_input = password_input.encode("utf-8")
-
-    return subprocess.run(stdin_cmd, env=env, input=password_input, **kwargs)
-
-
-def check_7z_installed():
-    """Check if 7z is installed and provide installation instructions if not."""
-    if shutil.which("7z") is not None:
+def check_pyzipper_installed():
+    """Check if pyzipper is available for encrypted ZIP support."""
+    if pyzipper is not None:
         return True
 
-    os_type = get_os_info()
-
-    print("Error: 7z no está instalado.")
+    print("Error: pyzipper no está instalado.")
     print()
-
-    if os_type == "macos":
-        print("Para instalar en macOS, ejecuta:")
-        print("  brew install p7zip")
-    elif os_type == "linux":
-        print("Para instalar en Linux (Debian/Ubuntu), ejecuta:")
-        print("  sudo apt install p7zip-full")
-        print()
-        print("Para instalar en Linux (Fedora/RHEL), ejecuta:")
-        print("  sudo dnf install p7zip p7zip-plugins")
-        print()
-        print("Para instalar en Linux (Arch), ejecuta:")
-        print("  sudo pacman -S p7zip")
-    else:
-        print("Por favor, instala p7zip para tu sistema operativo.")
-
+    print("Para habilitar partes ZIP protegidas con contraseña, ejecuta:")
+    print("  pip install pyzipper")
     return False
+
+
+def is_password_error(exc):
+    """Return True when an exception message indicates a password failure."""
+    message = str(exc).lower()
+    markers = (
+        "password",
+        "decrypt",
+        "authentication code",
+        "bad password",
+    )
+    return any(marker in message for marker in markers)
+
+
+def zip_requires_password(zip_path):
+    """Check if a ZIP archive has encrypted entries."""
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            infos = zf.infolist()
+            return any(info.flag_bits & 0x1 for info in infos)
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def write_zip_part(zip_path, inner_name, content, password):
+    """Write one encrypted ZIP member using AES-256."""
+    if pyzipper is None:
+        raise RuntimeError("pyzipper is required for encrypted ZIP support.")
+
+    with pyzipper.AESZipFile(
+        zip_path,
+        'w',
+        compression=pyzipper.ZIP_DEFLATED,
+        encryption=pyzipper.WZ_AES,
+    ) as zf:
+        zf.setpassword(password.encode('utf-8'))
+        zf.setencryption(pyzipper.WZ_AES, nbits=256)
+        zf.writestr(inner_name, content)
+
+
+def read_first_zip_member(zip_path, password=None):
+    """Read and return the first non-directory member from a ZIP archive."""
+    if pyzipper is None:
+        raise RuntimeError("pyzipper is required for encrypted ZIP support.")
+
+    with pyzipper.AESZipFile(zip_path, 'r') as zf:
+        names = [name for name in zf.namelist() if not name.endswith('/')]
+        if not names:
+            return None, None
+
+        if password is not None:
+            zf.setpassword(password.encode('utf-8'))
+
+        return zf.read(names[0]), names[0]
 
 
 def get_padding_width(num_parts):
@@ -179,7 +190,7 @@ def split_file(filepath):
     extension = ".zip" if use_password else ".part"
     password = None
     if use_password:
-        if not check_7z_installed():
+        if not check_pyzipper_installed():
             return False
         password = get_password(confirm=True)
 
@@ -222,21 +233,11 @@ def split_file(filepath):
         print(f"  [  0.0%] Creando {md5_part_path.name} (checksum)...", end="")
 
         if use_password:
-            temp_part = output_dir / ".temp_part_md5"
-            with open(temp_part, 'wb') as pf:
-                pf.write(md5_content)
-
-            cmd = ["7z", "a", "-tzip", "-bso0", "-bsp0"]
-            if password:
-                cmd.extend(["-p", "-mem=AES256"])
-            cmd.extend([str(md5_part_path), str(temp_part)])
-
-            result = run_7z(cmd, password=password, capture_output=True)
-            temp_part.unlink()
-
-            if result.returncode != 0:
+            try:
+                write_zip_part(md5_part_path, ".part_md5", md5_content, password)
+            except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as e:
                 print(" Error!")
-                print(f"Error al comprimir: {result.stderr.decode()}")
+                print(f"Error al comprimir: {e}")
                 return False
         else:
             with open(md5_part_path, 'wb') as pf:
@@ -263,25 +264,11 @@ def split_file(filepath):
                 print(f"  [{progress:5.1f}%] Creando {part_path.name}...", end="")
 
                 if use_password:
-                    # Create temporary file for the part
-                    temp_part = output_dir / f".temp_part_{i}"
-                    with open(temp_part, 'wb') as pf:
-                        pf.write(data)
-
-                    # Compress with 7z
-                    cmd = ["7z", "a", "-tzip", "-bso0", "-bsp0"]
-                    if password:
-                        cmd.extend(["-p", "-mem=AES256"])
-                    cmd.extend([str(part_path), str(temp_part)])
-
-                    result = run_7z(cmd, password=password, capture_output=True)
-
-                    # Remove temp file
-                    temp_part.unlink()
-
-                    if result.returncode != 0:
+                    try:
+                        write_zip_part(part_path, f".part_{i}", data, password)
+                    except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as e:
                         print(" Error!")
-                        print(f"Error al comprimir: {result.stderr.decode()}")
+                        print(f"Error al comprimir: {e}")
                         return False
                 else:
                     # Write raw part
@@ -368,44 +355,19 @@ def find_sequence_files(any_file):
 
 def detect_original_extension(first_zip_path, password=None):
     """Try to detect the original file extension from the first zip."""
-    cmd = ["7z", "l", "-slt", str(first_zip_path)]
-    if password:
-        cmd.insert(2, "-p")
-
-    result = run_7z(cmd, password=password, capture_output=True, text=True)
-
-    if result.returncode != 0:
+    try:
+        _, inner_name = read_first_zip_member(first_zip_path, password=password)
+        if inner_name:
+            return Path(inner_name).suffix or None
+    except Exception:
         return None
-
-    # Parse output to find the filename inside
-    for line in result.stdout.split('\n'):
-        if line.startswith('Path = ') and not line.endswith('.zip'):
-            inner_path = line[7:].strip()
-            # This is typically .temp_part_X, so we can't detect extension
-            # We'll need to ask or use a stored metadata approach
-            return None
 
     return None
 
 
 def check_zip_needs_password(zip_path):
     """Check if a ZIP file requires a password to extract."""
-    # Try to test the archive without password
-    cmd = ["7z", "t", "-p", str(zip_path)]
-    result = run_7z(cmd, capture_output=True, text=True)
-
-    # Check if it failed due to password
-    output = result.stdout + result.stderr
-    if "Wrong password" in output or "Enter password" in output or result.returncode != 0:
-        # Try with empty password to distinguish encrypted from corrupted
-        cmd_empty = ["7z", "t", "-p", str(zip_path)]
-        result_empty = run_7z(cmd_empty, capture_output=True, text=True)
-        output_empty = result_empty.stdout + result_empty.stderr
-
-        if "Wrong password" in output_empty or "Cannot open encrypted" in output_empty:
-            return True
-
-    return False
+    return zip_requires_password(zip_path)
 
 
 def extract_md5_info(md5_part_path, is_compressed, password=None):
@@ -414,30 +376,17 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
     """
     try:
         if is_compressed:
-            temp_dir = md5_part_path.parent / ".temp_extract_md5"
-            temp_dir.mkdir(exist_ok=True)
-
-            # Use -p for both modes; when password is set, run_7z sends it via stdin.
-            pwd_flag = "-p"
-            cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(md5_part_path)]
-
-            result = run_7z(cmd, password=password, capture_output=True, text=True)
-
-            if result.returncode != 0:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                # Check if it's a password error
-                error_output = result.stdout + result.stderr
-                if "Wrong password" in error_output or "Cannot open encrypted" in error_output:
+            try:
+                content_bytes, _ = read_first_zip_member(md5_part_path, password=password)
+            except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as e:
+                if zip_requires_password(md5_part_path) and (password is None or is_password_error(e)):
                     return None, None, True  # Needs password
                 return None, None, False
 
-            extracted_files = list(temp_dir.iterdir())
-            if extracted_files:
-                content = extracted_files[0].read_text('utf-8').strip()
-            else:
+            if content_bytes is None:
                 content = None
-
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            else:
+                content = content_bytes.decode('utf-8').strip()
         else:
             content = md5_part_path.read_text('utf-8').strip()
 
@@ -493,8 +442,8 @@ def join_files(first_file):
 
     is_compressed = extension.lower() == ".zip"
 
-    # Check if 7z is needed
-    if is_compressed and not check_7z_installed():
+    # Check if pyzipper is needed
+    if is_compressed and not check_pyzipper_installed():
         return False
 
     print(f"Encontrados {len(sequence_files)} archivos en la secuencia:")
@@ -568,36 +517,24 @@ def join_files(first_file):
                 print(f"  [{progress:5.1f}%] Procesando {part_path.name}...", end="")
 
                 if is_compressed:
-                    # Extract from zip to temp file
-                    temp_dir = part_path.parent / ".temp_extract"
-                    temp_dir.mkdir(exist_ok=True)
-
-                    # Use -p for both modes; when password is set, run_7z sends it via stdin.
-                    pwd_flag = "-p"
-                    cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(part_path)]
-
-                    result = run_7z(cmd, password=password, capture_output=True)
-
-                    if result.returncode != 0:
+                    try:
+                        part_bytes, _ = read_first_zip_member(part_path, password=password)
+                    except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as e:
                         print(" Error!")
-                        error_msg = result.stderr.decode()
-                        if "Wrong password" in error_msg or "password" in error_msg.lower():
+                        if zip_requires_password(part_path) and (password is None or is_password_error(e)):
                             print("Error: Contraseña incorrecta.")
                         else:
-                            print(f"Error al descomprimir: {error_msg}")
-                        # Cleanup
-                        shutil.rmtree(temp_dir, ignore_errors=True)
+                            print(f"Error al descomprimir: {e}")
                         output_path.unlink(missing_ok=True)
                         return False
 
-                    # Find extracted file and read it
-                    extracted_files = list(temp_dir.iterdir())
-                    if extracted_files:
-                        with open(extracted_files[0], 'rb') as pf:
-                            outfile.write(pf.read())
+                    if part_bytes is None:
+                        print(" Error!")
+                        print("Error al descomprimir: la parte ZIP no contiene archivos.")
+                        output_path.unlink(missing_ok=True)
+                        return False
 
-                    # Cleanup temp dir
-                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    outfile.write(part_bytes)
                 else:
                     # Read raw part
                     with open(part_path, 'rb') as pf:
