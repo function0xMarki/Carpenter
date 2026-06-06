@@ -602,16 +602,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos de uso:
-  %(prog)s -split archivo.jpg       Divide archivo (modo interactivo)
-  %(prog)s -join archivo_01.part    Une archivos fragmentados
+  %(prog)s --split archivo.jpg       Divide archivo (modo interactivo)
+  %(prog)s --join archivo_01.part    Une archivos fragmentados
         """
     )
 
     # Mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument("-split", action="store_true",
+    mode_group.add_argument("--split", action="store_true",
                            help="Dividir archivo (modo interactivo)")
-    mode_group.add_argument("-join", action="store_true",
+    mode_group.add_argument("--join", action="store_true",
                            help="Unir archivos fragmentados")
 
     # File argument (positional, at the end)
