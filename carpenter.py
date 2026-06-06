@@ -64,7 +64,8 @@ def get_install_command():
 def run_7z(cmd, **kwargs):
     """Run 7z command with proper UTF-8 encoding for passwords with special chars."""
     if _7Z_CMD is None:
-        return subprocess.CompletedProcess(cmd, 1, b"", b"7z not installed")
+        empty = "" if kwargs.get("text") else b""
+        return subprocess.CompletedProcess(cmd, 1, empty, empty)
     if cmd and cmd[0] in ("7z", "7zz"):
         cmd = [_7Z_CMD] + cmd[1:]
     env = os.environ.copy()
@@ -422,47 +423,6 @@ def find_sequence_files(any_file):
 
     return sequence_files, base_name, extension
 
-
-def detect_original_extension(first_zip_path, password=None):
-    """Try to detect the original file extension from the first zip."""
-    cmd = ["7z", "l", "-slt", str(first_zip_path)]
-    if password:
-        cmd.insert(2, f"-p{password}")
-
-    result = run_7z(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        return None
-
-    # Parse output to find the filename inside
-    for line in result.stdout.split('\n'):
-        if line.startswith('Path = ') and not line.endswith('.zip'):
-            inner_path = line[7:].strip()
-            # This is typically .temp_part_X, so we can't detect extension
-            # We'll need to ask or use a stored metadata approach
-            return None
-
-    return None
-
-
-def check_zip_needs_password(zip_path):
-    """Check if a ZIP file requires a password to extract."""
-    # Try to test the archive without password
-    cmd = ["7z", "t", "-p", str(zip_path)]
-    result = run_7z(cmd, capture_output=True, text=True)
-
-    # Check if it failed due to password
-    output = result.stdout + result.stderr
-    if "Wrong password" in output or "Enter password" in output or result.returncode != 0:
-        # Try with empty password to distinguish encrypted from corrupted
-        cmd_empty = ["7z", "t", "-p", str(zip_path)]
-        result_empty = run_7z(cmd_empty, capture_output=True, text=True)
-        output_empty = result_empty.stdout + result_empty.stderr
-
-        if "Wrong password" in output_empty or "Cannot open encrypted" in output_empty:
-            return True
-
-    return False
 
 
 def extract_md5_info(md5_part_path, is_compressed, password=None):
