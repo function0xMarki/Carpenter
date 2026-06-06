@@ -63,11 +63,14 @@ def get_install_command():
 
 def run_7z(cmd, **kwargs):
     """Ejecuta 7z con codificación UTF-8 para contraseñas con caracteres especiales."""
+    if _7Z_CMD is None:
+        return subprocess.CompletedProcess(cmd, 1, b"", b"7z no instalado")
     if cmd and cmd[0] in ("7z", "7zz"):
         cmd = [_7Z_CMD] + cmd[1:]
     env = os.environ.copy()
     env['LC_ALL'] = 'en_US.UTF-8'
     env['LANG'] = 'en_US.UTF-8'
+    kwargs.setdefault('stdin', subprocess.DEVNULL)
     return subprocess.run(cmd, env=env, **kwargs)
 
 
@@ -109,6 +112,17 @@ def check_dependencies():
                     print("¡p7zip instalado correctamente!")
                     print()
                     return
+            # En macOS, p7zip puede estar deprecado — intentar 7-zip como alternativa
+            if install_cmd[0] == "brew" and "p7zip" in install_cmd:
+                print("Intentando 7-zip como alternativa...")
+                result2 = subprocess.run(["brew", "install", "7-zip"])
+                if result2.returncode == 0:
+                    cmd = find_7z_cmd()
+                    if cmd:
+                        _7Z_CMD = cmd
+                        print("¡7-zip instalado correctamente!")
+                        print()
+                        return
             print("La instalación falló. Continuando sin protección con contraseña.")
         print()
     else:
@@ -116,6 +130,7 @@ def check_dependencies():
         print("No se detectó ningún gestor de paquetes. Instala p7zip manualmente:")
         if os_type == "macos":
             print("  brew install p7zip")
+            print("  (o: brew install 7-zip)")
         elif os_type == "linux":
             print("  sudo apt install p7zip-full   (Debian/Ubuntu)")
             print("  sudo dnf install p7zip p7zip-plugins   (Fedora/RHEL)")
