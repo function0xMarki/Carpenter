@@ -277,7 +277,7 @@ def split_file(filepath):
         md5_part_path = part_paths[0]
         md5_content = f"{file_md5}  {original_name}\n".encode('utf-8')
 
-        print(f"  [  0.0%] Creating {md5_part_path.name} (checksum)...", end="")
+        print(f"  [  0.0%] Creating {md5_part_path.name} (checksum)...", end="", flush=True)
 
         if use_password:
             temp_part = output_dir / ".temp_part_md5"
@@ -318,7 +318,7 @@ def split_file(filepath):
 
                 # Progress
                 progress = (i + 1) / num_parts * 100
-                print(f"  [{progress:5.1f}%] Creating {part_path.name}...", end="")
+                print(f"  [{progress:5.1f}%] Creating {part_path.name}...", end="", flush=True)
 
                 if use_password:
                     # Create temporary file for the part
@@ -413,7 +413,7 @@ def find_sequence_files(any_file):
 
     if not sequence_files:
         print("Error: No files found in sequence.")
-        return None, None, None
+        return None, None, None, False
 
     # Warn if part 0 (MD5) is missing
     if not has_part_0:
@@ -421,7 +421,7 @@ def find_sequence_files(any_file):
         print("         File integrity cannot be verified.")
         print()
 
-    return sequence_files, base_name, extension
+    return sequence_files, base_name, extension, has_part_0
 
 
 
@@ -432,35 +432,29 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
     try:
         if is_compressed:
             temp_dir = md5_part_path.parent / ".temp_extract_md5"
-            temp_dir.mkdir(exist_ok=True)
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            temp_dir.mkdir()
 
-            # Always use -p flag to prevent 7z from waiting for interactive input
-            # Empty password (-p) will fail on encrypted files, which we detect
-            pwd_flag = f"-p{password}" if password else "-p"
-            cmd = ["7z", "e", pwd_flag, f"-o{temp_dir}", "-y", str(md5_part_path)]
+            try:
+                pwd_flag = f"-p{password}" if password else "-p"
+                cmd = ["7z", "e", pwd_flag, f"-o{temp_dir}", "-y", str(md5_part_path)]
+                result = run_7z(cmd, capture_output=True, text=True)
 
-            result = run_7z(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    error_output = result.stdout + result.stderr
+                    if "Wrong password" in error_output or "Cannot open encrypted" in error_output:
+                        return None, None, True  # Needs password
+                    return None, None, False
 
-            if result.returncode != 0:
+                extracted_files = list(temp_dir.iterdir())
+                content = extracted_files[0].read_text('utf-8').strip() if extracted_files else None
+            finally:
                 shutil.rmtree(temp_dir, ignore_errors=True)
-                # Check if it's a password error
-                error_output = result.stdout + result.stderr
-                if "Wrong password" in error_output or "Cannot open encrypted" in error_output:
-                    return None, None, True  # Needs password
-                return None, None, False
-
-            extracted_files = list(temp_dir.iterdir())
-            if extracted_files:
-                content = extracted_files[0].read_text('utf-8').strip()
-            else:
-                content = None
-
-            shutil.rmtree(temp_dir, ignore_errors=True)
         else:
             content = md5_part_path.read_text('utf-8').strip()
 
         if content:
-            # Format: "md5hash  filename"
             parts = content.split('  ', 1)
             if len(parts) == 2:
                 return parts[0], parts[1], False
@@ -473,7 +467,7 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
 
 def join_files(first_file):
     """Join split files back into the original."""
-    sequence_files, base_name, extension = find_sequence_files(first_file)
+    sequence_files, base_name, extension, has_part_0 = find_sequence_files(first_file)
 
     if sequence_files is None or base_name is None or extension is None:
         return False
@@ -489,32 +483,34 @@ def join_files(first_file):
         print(f"  - {f.name}")
     print()
 
-    # Check if first file (part 0) contains MD5 info
     original_md5 = None
     original_name = None
-    data_files = sequence_files
     password = None
 
-    # Try to extract MD5 from part 0 (first without password)
-    md5_hash, stored_name, needs_password = extract_md5_info(sequence_files[0], is_compressed, None)
+    # Part 0 (if it exists) is always metadata — never data.
+    # Set data_files now so we never accidentally include part 0 in reconstruction.
+    data_files = sequence_files[1:] if has_part_0 else sequence_files
 
-    # If needs password, ask for it and retry
-    if is_compressed and needs_password:
-        print("File is password protected.")
-        password = get_password(confirm=False)
-        md5_hash, stored_name, needs_password = extract_md5_info(sequence_files[0], is_compressed, password)
+    if has_part_0:
+        # Try to extract MD5 from part 0 (first without password)
+        md5_hash, stored_name, needs_password = extract_md5_info(sequence_files[0], is_compressed, None)
 
-        if needs_password:
-            print("Error: Wrong password.")
-            return False
+        # If needs password, ask for it and retry
+        if is_compressed and needs_password:
+            print("File is password protected.")
+            password = get_password(confirm=False)
+            md5_hash, stored_name, needs_password = extract_md5_info(sequence_files[0], is_compressed, password)
 
-    if md5_hash and stored_name:
-        original_md5 = md5_hash
-        original_name = stored_name
-        data_files = sequence_files[1:]  # Skip part 0 for data reconstruction
-        print(f"Detected MD5 checksum: {original_md5}")
-        print(f"Original filename: {original_name}")
-        print()
+            if needs_password:
+                print("Error: Wrong password.")
+                return False
+
+        if md5_hash and stored_name:
+            original_md5 = md5_hash
+            original_name = stored_name
+            print(f"Detected MD5 checksum: {original_md5}")
+            print(f"Original filename: {original_name}")
+            print()
 
     # Determine output filename
     if original_name:
@@ -542,14 +538,15 @@ def join_files(first_file):
         with open(output_path, 'wb') as outfile:
             for i, part_path in enumerate(data_files):
                 progress = (i + 1) / len(data_files) * 100
-                print(f"  [{progress:5.1f}%] Processing {part_path.name}...", end="")
+                print(f"  [{progress:5.1f}%] Processing {part_path.name}...", end="", flush=True)
 
                 if is_compressed:
-                    # Extract from zip to temp file
-                    temp_dir = part_path.parent / ".temp_extract"
-                    temp_dir.mkdir(exist_ok=True)
+                    # Use a unique temp dir per part to avoid leftover files from previous parts
+                    temp_dir = part_path.parent / f".temp_extract_{i}"
+                    if temp_dir.exists():
+                        shutil.rmtree(temp_dir)
+                    temp_dir.mkdir()
 
-                    # Always use -p flag to prevent 7z from waiting for interactive input
                     pwd_flag = f"-p{password}" if password else "-p"
                     cmd = ["7z", "e", pwd_flag, f"-o{temp_dir}", "-y", str(part_path)]
 
@@ -562,18 +559,15 @@ def join_files(first_file):
                             print("Error: Wrong password.")
                         else:
                             print(f"Decompression error: {error_msg}")
-                        # Cleanup
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         output_path.unlink(missing_ok=True)
                         return False
 
-                    # Find extracted file and read it
                     extracted_files = list(temp_dir.iterdir())
                     if extracted_files:
                         with open(extracted_files[0], 'rb') as pf:
                             outfile.write(pf.read())
 
-                    # Cleanup temp dir
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 else:
                     # Read raw part
