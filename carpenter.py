@@ -572,11 +572,15 @@ def join_files(first_file):
 
                     if result.returncode != 0:
                         print(" Error!")
-                        error_msg = result.stderr.decode('utf-8', errors='replace')
+                        # p7zip writes "Wrong password?" to stdout; 7-Zip to stderr — check both
+                        error_msg = (
+                            result.stdout.decode('utf-8', errors='replace') +
+                            result.stderr.decode('utf-8', errors='replace')
+                        )
                         if "Wrong password" in error_msg or "password" in error_msg.lower():
                             print("Error: Wrong password.")
                         else:
-                            print(f"Decompression error: {error_msg}")
+                            print(f"Decompression error: {error_msg.strip() or '(no details)'}")
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         try:
                             output_path.unlink()
