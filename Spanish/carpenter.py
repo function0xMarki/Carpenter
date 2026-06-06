@@ -72,20 +72,33 @@ def run_7z(cmd, **kwargs):
 
 
 def check_7z_installed():
-    """Verifica si 7z/7zz está instalado. Ofrece instalación automática si falta."""
+    """Verifica si 7z está disponible (establecido por check_dependencies al inicio)."""
+    if _7Z_CMD is not None:
+        return True
+    print("Error: 7z no está instalado. La protección con contraseña no está disponible.")
+    print("       Reinicia el programa para que te ofrezca instalarlo.")
+    return False
+
+
+def check_dependencies():
+    """Verifica las dependencias al inicio. Silencioso si todo está bien."""
     global _7Z_CMD
 
     cmd = find_7z_cmd()
     if cmd:
         _7Z_CMD = cmd
-        return True
+        return
 
-    print("Error: 7z no está instalado.")
+    print("Aviso: 7z no está instalado.")
+    print("       La protección con contraseña no estará disponible sin él.")
     print()
 
     install_cmd = get_install_command()
     if install_cmd:
-        response = input("¿Intentar instalar automáticamente? (s/n): ").strip().lower()
+        try:
+            response = input("¿Instalar p7zip ahora? (s/n): ").strip().lower()
+        except EOFError:
+            response = ""
         if response in ['s', 'si', 'sí', 'y', 'yes']:
             print(f"Ejecutando: {' '.join(install_cmd)}")
             result = subprocess.run(install_cmd)
@@ -95,27 +108,19 @@ def check_7z_installed():
                     _7Z_CMD = cmd
                     print("¡p7zip instalado correctamente!")
                     print()
-                    return True
-            print("La instalación automática falló. Por favor, instala manualmente.")
-            print()
-
-    os_type = get_os_info()
-    if os_type == "macos":
-        print("Para instalar en macOS, ejecuta:")
-        print("  brew install p7zip")
-    elif os_type == "linux":
-        print("Para instalar en Linux (Debian/Ubuntu), ejecuta:")
-        print("  sudo apt install p7zip-full")
+                    return
+            print("La instalación falló. Continuando sin protección con contraseña.")
         print()
-        print("Para instalar en Linux (Fedora/RHEL), ejecuta:")
-        print("  sudo dnf install p7zip p7zip-plugins")
-        print()
-        print("Para instalar en Linux (Arch), ejecuta:")
-        print("  sudo pacman -S p7zip")
     else:
-        print("Por favor, instala p7zip para tu sistema operativo.")
-
-    return False
+        os_type = get_os_info()
+        print("No se detectó ningún gestor de paquetes. Instala p7zip manualmente:")
+        if os_type == "macos":
+            print("  brew install p7zip")
+        elif os_type == "linux":
+            print("  sudo apt install p7zip-full   (Debian/Ubuntu)")
+            print("  sudo dnf install p7zip p7zip-plugins   (Fedora/RHEL)")
+            print("  sudo pacman -S p7zip   (Arch)")
+        print()
 
 
 def get_padding_width(num_parts):
@@ -666,6 +671,8 @@ Ejemplos de uso:
     parser.add_argument("file", help="Archivo a procesar")
 
     args = parser.parse_args()
+
+    check_dependencies()
 
     if args.split:
         success = split_file(args.file)
