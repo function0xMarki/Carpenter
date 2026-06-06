@@ -34,8 +34,37 @@ def get_os_info():
         return system
 
 
+_7Z_CMD = None
+
+
+def find_7z_cmd():
+    """Find available 7z command (7z from p7zip or 7zz from modern 7-Zip)."""
+    for cmd in ["7z", "7zz"]:
+        if shutil.which(cmd) is not None:
+            return cmd
+    return None
+
+
+def get_install_command():
+    """Return the install command for p7zip based on the detected package manager."""
+    candidates = [
+        ("apt-get", ["sudo", "apt-get", "install", "-y", "p7zip-full"]),
+        ("apt",     ["sudo", "apt", "install", "-y", "p7zip-full"]),
+        ("dnf",     ["sudo", "dnf", "install", "-y", "p7zip", "p7zip-plugins"]),
+        ("pacman",  ["sudo", "pacman", "-S", "--noconfirm", "p7zip"]),
+        ("zypper",  ["sudo", "zypper", "install", "-y", "p7zip"]),
+        ("brew",    ["brew", "install", "p7zip"]),
+    ]
+    for mgr, cmd in candidates:
+        if shutil.which(mgr):
+            return cmd
+    return None
+
+
 def run_7z(cmd, **kwargs):
     """Run 7z command with proper UTF-8 encoding for passwords with special chars."""
+    if cmd and cmd[0] in ("7z", "7zz"):
+        cmd = [_7Z_CMD] + cmd[1:]
     env = os.environ.copy()
     env['LC_ALL'] = 'en_US.UTF-8'
     env['LANG'] = 'en_US.UTF-8'
@@ -43,15 +72,34 @@ def run_7z(cmd, **kwargs):
 
 
 def check_7z_installed():
-    """Check if 7z is installed and provide installation instructions if not."""
-    if shutil.which("7z") is not None:
-        return True
+    """Check if 7z/7zz is installed. Offers auto-install if missing."""
+    global _7Z_CMD
 
-    os_type = get_os_info()
+    cmd = find_7z_cmd()
+    if cmd:
+        _7Z_CMD = cmd
+        return True
 
     print("Error: 7z is not installed.")
     print()
 
+    install_cmd = get_install_command()
+    if install_cmd:
+        response = input("Try to install automatically? (y/n): ").strip().lower()
+        if response in ['y', 'yes']:
+            print(f"Running: {' '.join(install_cmd)}")
+            result = subprocess.run(install_cmd)
+            if result.returncode == 0:
+                cmd = find_7z_cmd()
+                if cmd:
+                    _7Z_CMD = cmd
+                    print("p7zip installed successfully!")
+                    print()
+                    return True
+            print("Auto-install failed. Please install manually.")
+            print()
+
+    os_type = get_os_info()
     if os_type == "macos":
         print("To install on macOS, run:")
         print("  brew install p7zip")
@@ -215,7 +263,7 @@ def split_file(filepath):
             with open(temp_part, 'wb') as pf:
                 pf.write(md5_content)
 
-            cmd = ["7z", "a", "-tzip", "-bso0", "-bsp0"]
+            cmd = ["7z", "a", "-tzip"]
             if password:
                 cmd.extend([f"-p{password}", "-mem=AES256"])
             cmd.extend([str(md5_part_path), str(temp_part)])
@@ -258,7 +306,7 @@ def split_file(filepath):
                         pf.write(data)
 
                     # Compress with 7z
-                    cmd = ["7z", "a", "-tzip", "-bso0", "-bsp0"]
+                    cmd = ["7z", "a", "-tzip"]
                     if password:
                         cmd.extend([f"-p{password}", "-mem=AES256"])
                     cmd.extend([str(part_path), str(temp_part)])
@@ -409,7 +457,7 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
             # Always use -p flag to prevent 7z from waiting for interactive input
             # Empty password (-p) will fail on encrypted files, which we detect
             pwd_flag = f"-p{password}" if password else "-p"
-            cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(md5_part_path)]
+            cmd = ["7z", "e", pwd_flag, f"-o{temp_dir}", "-y", str(md5_part_path)]
 
             result = run_7z(cmd, capture_output=True, text=True)
 
@@ -523,7 +571,7 @@ def join_files(first_file):
 
                     # Always use -p flag to prevent 7z from waiting for interactive input
                     pwd_flag = f"-p{password}" if password else "-p"
-                    cmd = ["7z", "e", pwd_flag, "-bso0", "-bsp0", f"-o{temp_dir}", "-y", str(part_path)]
+                    cmd = ["7z", "e", pwd_flag, f"-o{temp_dir}", "-y", str(part_path)]
 
                     result = run_7z(cmd, capture_output=True)
 
