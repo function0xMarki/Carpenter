@@ -179,13 +179,24 @@ def check_existing_files(filepaths):
 def get_password(confirm=True):
     """Get password interactively without showing it."""
     while True:
-        password = getpass.getpass("Enter password: ")
+        try:
+            password = getpass.getpass("Enter password: ")
+        except EOFError:
+            print()
+            print("Error: Cannot read password in non-interactive mode.")
+            sys.exit(1)
+
         if not password:
             print("Password cannot be empty.")
             continue
 
         if confirm:
-            password2 = getpass.getpass("Confirm password: ")
+            try:
+                password2 = getpass.getpass("Confirm password: ")
+            except EOFError:
+                print()
+                print("Error: Cannot read password in non-interactive mode.")
+                sys.exit(1)
             if password != password2:
                 print("Passwords do not match. Try again.")
                 continue
@@ -294,7 +305,7 @@ def split_file(filepath):
 
             if result.returncode != 0:
                 print(" Error!")
-                print(f"Compression error: {result.stderr.decode()}")
+                print(f"Compression error: {result.stderr.decode('utf-8', errors='replace')}")
                 return False
         else:
             with open(md5_part_path, 'wb') as pf:
@@ -339,7 +350,7 @@ def split_file(filepath):
 
                     if result.returncode != 0:
                         print(" Error!")
-                        print(f"Compression error: {result.stderr.decode()}")
+                        print(f"Compression error: {result.stderr.decode('utf-8', errors='replace')}")
                         return False
                 else:
                     # Write raw part
@@ -368,7 +379,7 @@ def find_sequence_files(any_file):
 
     if not filepath.exists():
         print(f"Error: File '{filepath}' does not exist.")
-        return None, None, None
+        return None, None, None, False
 
     filename = filepath.stem
     extension = filepath.suffix
@@ -379,13 +390,13 @@ def find_sequence_files(any_file):
     parts = filename.rsplit('_', 1)
     if len(parts) != 2:
         print(f"Error: File does not follow expected pattern (name_number{extension}).")
-        return None, None, None
+        return None, None, None, False
 
     base_name, num_str = parts
 
     if not num_str.isdigit():
         print(f"Error: File does not follow expected pattern (name_number{extension}).")
-        return None, None, None
+        return None, None, None, False
 
     padding_width = len(num_str)
 
@@ -512,6 +523,13 @@ def join_files(first_file):
             print(f"Original filename: {original_name}")
             print()
 
+    elif is_compressed and data_files:
+        # No part 0, but files are ZIP — probe first data part to detect encryption.
+        _, _, needs_password = extract_md5_info(data_files[0], is_compressed, None)
+        if needs_password:
+            print("File is password protected.")
+            password = get_password(confirm=False)
+
     # Determine output filename
     if original_name:
         output_name = original_name
@@ -554,19 +572,30 @@ def join_files(first_file):
 
                     if result.returncode != 0:
                         print(" Error!")
-                        error_msg = result.stderr.decode()
+                        error_msg = result.stderr.decode('utf-8', errors='replace')
                         if "Wrong password" in error_msg or "password" in error_msg.lower():
                             print("Error: Wrong password.")
                         else:
                             print(f"Decompression error: {error_msg}")
                         shutil.rmtree(temp_dir, ignore_errors=True)
-                        output_path.unlink(missing_ok=True)
+                        try:
+                            output_path.unlink()
+                        except FileNotFoundError:
+                            pass
                         return False
 
                     extracted_files = list(temp_dir.iterdir())
-                    if extracted_files:
-                        with open(extracted_files[0], 'rb') as pf:
-                            outfile.write(pf.read())
+                    if not extracted_files:
+                        print(" Error!")
+                        print(f"Error: No data extracted from {part_path.name}. Archive may be corrupted.")
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        try:
+                            output_path.unlink()
+                        except FileNotFoundError:
+                            pass
+                        return False
+                    with open(extracted_files[0], 'rb') as pf:
+                        outfile.write(pf.read())
 
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 else:
