@@ -71,7 +71,8 @@ def run_7z(cmd, **kwargs):
     env = os.environ.copy()
     env['LC_ALL'] = 'en_US.UTF-8'
     env['LANG'] = 'en_US.UTF-8'
-    kwargs.setdefault('stdin', subprocess.DEVNULL)
+    if 'input' not in kwargs:
+        kwargs.setdefault('stdin', subprocess.DEVNULL)
     return subprocess.run(cmd, env=env, **kwargs)
 
 
@@ -296,11 +297,16 @@ def split_file(filepath):
                 pf.write(md5_content)
 
             cmd = ["7z", "a", "-tzip"]
+            stdin_data = None
             if password:
-                cmd.extend([f"-p{password}", "-mem=AES256"])
+                cmd.extend(["-p", "-mem=AES256"])
+                # Pass password via stdin to avoid p7zip E_INVALIDARG with non-ASCII chars.
+                # Send twice: p7zip may ask for confirmation during 'a' (add) command.
+                stdin_data = (password + "\n" + password + "\n").encode('utf-8')
             cmd.extend([str(md5_part_path), str(temp_part)])
 
-            result = run_7z(cmd, capture_output=True)
+            kw = {"input": stdin_data} if stdin_data else {}
+            result = run_7z(cmd, capture_output=True, **kw)
             temp_part.unlink()
 
             if result.returncode != 0:
@@ -339,11 +345,14 @@ def split_file(filepath):
 
                     # Compress with 7z
                     cmd = ["7z", "a", "-tzip"]
+                    stdin_data = None
                     if password:
-                        cmd.extend([f"-p{password}", "-mem=AES256"])
+                        cmd.extend(["-p", "-mem=AES256"])
+                        stdin_data = (password + "\n" + password + "\n").encode('utf-8')
                     cmd.extend([str(part_path), str(temp_part)])
 
-                    result = run_7z(cmd, capture_output=True)
+                    kw = {"input": stdin_data} if stdin_data else {}
+                    result = run_7z(cmd, capture_output=True, **kw)
 
                     # Remove temp file
                     temp_part.unlink()
@@ -448,12 +457,15 @@ def extract_md5_info(md5_part_path, is_compressed, password=None):
             temp_dir.mkdir()
 
             try:
-                pwd_flag = f"-p{password}" if password else "-p"
-                cmd = ["7z", "e", pwd_flag, f"-o{temp_dir}", "-y", str(md5_part_path)]
-                result = run_7z(cmd, capture_output=True, text=True)
+                cmd = ["7z", "e", "-p", f"-o{temp_dir}", "-y", str(md5_part_path)]
+                if password:
+                    result = run_7z(cmd, capture_output=True,
+                                    input=(password + "\n").encode('utf-8'))
+                else:
+                    result = run_7z(cmd, capture_output=True)
 
                 if result.returncode != 0:
-                    error_output = result.stdout + result.stderr
+                    error_output = (result.stdout + result.stderr).decode('utf-8', errors='replace')
                     if "Wrong password" in error_output or "Cannot open encrypted" in error_output:
                         return None, None, True  # Needs password
                     return None, None, False
@@ -565,10 +577,12 @@ def join_files(first_file):
                         shutil.rmtree(temp_dir)
                     temp_dir.mkdir()
 
-                    pwd_flag = f"-p{password}" if password else "-p"
-                    cmd = ["7z", "e", pwd_flag, f"-o{temp_dir}", "-y", str(part_path)]
-
-                    result = run_7z(cmd, capture_output=True)
+                    cmd = ["7z", "e", "-p", f"-o{temp_dir}", "-y", str(part_path)]
+                    if password:
+                        result = run_7z(cmd, capture_output=True,
+                                        input=(password + "\n").encode('utf-8'))
+                    else:
+                        result = run_7z(cmd, capture_output=True)
 
                     if result.returncode != 0:
                         print(" Error!")
