@@ -1,11 +1,7 @@
 # Carpenter - Python Dependencies
 # ================================
-# This project uses only Python standard library.
-# No pip packages are required.
+# Core functionality uses only the Python standard library.
 
-# System Dependencies (optional, for password protection):
-# --------------------------------------------------------
-# macOS:   brew install p7zip
-# Ubuntu:  sudo apt install p7zip-full
-# Fedora:  sudo dnf install p7zip p7zip-plugins
-# Arch:    sudo pacman -S p7zip
+# Optional, required only for password protection (AES-256 ZIP).
+# Offered for automatic installation on first run if missing.
+pyzipper

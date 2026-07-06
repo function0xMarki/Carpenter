@@ -7,17 +7,22 @@ Command-line tool to split files into multiple parts and reconstruct them later.
 - Split any file into N equal parts
 - Optional ZIP compression with AES-256 encryption
 - Full Unicode password support (including special characters like `ñ`, `Ñ`, `é`, etc.)
-- Cross-platform: files split on Linux can be joined on macOS and vice versa
+- Cross-platform: files split on Linux, macOS or Windows can be joined on any of them
 - Automatic MD5 integrity verification
 - Automatically detects all parts in a sequence (provide any part, not just the first)
+- Refuses to join if parts before the one you provided are missing
+- Warns about leftover parts from a previous split that would corrupt the join
 - Automatically detects if ZIP files require a password
+- Low memory usage: plain parts are streamed in 1 MiB chunks (with password
+  protection, one part at a time is held in memory — pick a part count that
+  keeps parts reasonably sized for very large files)
 - Fully interactive mode
 - Option to delete fragments after reconstruction
 
 ## Requirements
 
 - Python 3.8+
-- [`pyzipper`](https://github.com/danifus/pyzipper) — only needed for password protection. **Installed automatically** on first run if missing.
+- [`pyzipper`](https://github.com/danifus/pyzipper) — only needed for password protection. **Offered for installation** on first run if missing.
 
 ### Manual installation
 
@@ -77,7 +82,7 @@ python3 carpenter.py --join photo_2.zip
 > You can provide **any part** from the sequence — the program finds all parts automatically.
 
 The program will:
-1. Locate all parts in the directory
+1. Locate all parts in the directory (refusing if any part before the one you provided is missing)
 2. Ask for the password if the files are encrypted
 3. Reconstruct the original file
 4. Verify MD5 integrity
@@ -88,6 +93,18 @@ The program will:
 ```bash
 python3 carpenter.py --help
 ```
+
+## Tests
+
+```bash
+python3 test_carpenter.py
+```
+
+Runs 60 black-box checks covering split/join round-trips (plain and
+encrypted), Unicode passwords and filenames, error paths and edge cases.
+Optionally pass a path to test another copy of `carpenter.py`; the
+`--baseline` flag skips checks for behavior added in the 2026-07 review so
+the suite can also run against older versions.
 
 ## File structure
 
@@ -117,6 +134,8 @@ Part `_0` contains metadata only. Parts `_1` onward contain the actual data.
 - AES-256 encryption via [pyzipper](https://github.com/danifus/pyzipper) (WinZip AES format)
 - Passwords are always encoded as UTF-8 before key derivation, ensuring identical results across Linux, macOS, and Windows
 - MD5 checksum verifies file integrity after reconstruction
+- The filename stored in part 0 is reduced to its base name when joining, so a
+  crafted archive cannot write outside the fragment directory
 
 > **Note:** Files created with password protection are only compatible with Carpenter or tools that support WinZip AES-256 encryption (such as 7-Zip or WinZip). Files created **without** a password are standard raw binary parts with no container format.
 

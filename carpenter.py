@@ -7,9 +7,36 @@ import argparse
 import getpass
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# Chunk size for streaming file copies (1 MiB) so parts are never
+# fully loaded into memory in plain (.part) mode.
+COPY_CHUNK_SIZE = 1024 * 1024
+
+
+def ask(prompt):
+    """input() that exits cleanly if stdin ends (non-interactive misuse)."""
+    try:
+        return input(prompt)
+    except EOFError:
+        print()
+        print("Error: Unexpected end of input.")
+        sys.exit(1)
+
+
+def copy_bytes(src, dst, nbytes):
+    """Copy exactly nbytes from src to dst in chunks. Returns bytes copied."""
+    copied = 0
+    while copied < nbytes:
+        buf = src.read(min(COPY_CHUNK_SIZE, nbytes - copied))
+        if not buf:
+            break
+        dst.write(buf)
+        copied += len(buf)
+    return copied
 
 
 def calculate_md5(filepath):
@@ -114,7 +141,7 @@ def generate_part_names(base_name, num_parts, extension):
 def ask_overwrite(filepath):
     """Ask user if they want to overwrite an existing file."""
     if os.path.exists(filepath):
-        response = input(f"File '{filepath}' already exists. Overwrite? (y/n): ").strip().lower()
+        response = ask(f"File '{filepath}' already exists. Overwrite? (y/n): ").strip().lower()
         return response in ['y', 'yes']
     return True
 
@@ -126,7 +153,7 @@ def check_existing_files(filepaths):
         print("The following files already exist:")
         for f in existing:
             print(f"  - {f}")
-        response = input("Overwrite all? (y/n): ").strip().lower()
+        response = ask("Overwrite all? (y/n): ").strip().lower()
         return response in ['y', 'yes']
     return True
 
@@ -159,6 +186,45 @@ def get_password(confirm=True):
         return password
 
 
+def handle_stale_parts(output_dir, base_name, num_parts, extension):
+    """Detect leftover parts from a previous, larger split of the same file.
+
+    Files continuing the new sequence (indexes num_parts+1 onward, same
+    padding width) would be silently absorbed when joining, corrupting the
+    reconstruction. Offer to delete them. Returns False to cancel the split.
+    """
+    width = get_padding_width(num_parts)
+    stale = []
+    i = num_parts + 1
+    while len(str(i)) <= width:
+        part_path = output_dir / f"{base_name}_{str(i).zfill(width)}{extension}"
+        if not part_path.exists():
+            break
+        stale.append(part_path)
+        i += 1
+
+    if not stale:
+        return True
+
+    print("Warning: stale part files from a previous split were found:")
+    for p in stale:
+        print(f"  - {p.name}")
+    print("         If kept, they would corrupt the file when joining.")
+    response = ask("Delete them? (y/n): ").strip().lower()
+    if response not in ['y', 'yes']:
+        return False
+
+    for p in stale:
+        try:
+            p.unlink()
+        except OSError as e:
+            print(f"Error deleting {p.name}: {e}")
+            return False
+    print("Stale parts deleted.")
+    print()
+    return True
+
+
 def split_file(filepath):
     """Split a file into multiple parts (interactive mode)."""
     filepath = Path(filepath)
@@ -178,7 +244,7 @@ def split_file(filepath):
 
     while True:
         try:
-            num_parts_str = input("How many parts to split into? ").strip()
+            num_parts_str = ask("How many parts to split into? ").strip()
             num_parts = int(num_parts_str)
             if num_parts < 2:
                 print("Error: Number of parts must be at least 2.")
@@ -193,7 +259,7 @@ def split_file(filepath):
         print(f"Error: File is too small to split into {num_parts} parts.")
         return False
 
-    use_password_response = input("Protect with password? (y/n): ").strip().lower()
+    use_password_response = ask("Protect with password? (y/n): ").strip().lower()
     use_password = use_password_response in ['y', 'yes']
 
     extension = ".zip" if use_password else ".part"
@@ -217,12 +283,20 @@ def split_file(filepath):
         print("Operation cancelled.")
         return False
 
+    if not handle_stale_parts(output_dir, base_name, num_parts, extension):
+        print("Operation cancelled.")
+        return False
+
     print(f"Calculating MD5 of '{filepath.name}'...")
     file_md5 = calculate_md5(filepath)
     print(f"  MD5: {file_md5}")
     print()
 
-    output_dir.mkdir(exist_ok=True)
+    try:
+        output_dir.mkdir(exist_ok=True)
+    except OSError as e:
+        print(f"Error: Could not create output directory: {e}")
+        return False
     print(f"Output directory: {output_dir}")
     print()
 
@@ -247,21 +321,18 @@ def split_file(filepath):
 
         print(" OK")
 
+        # Parts 1..N-1 get part_size bytes; the last part gets the remainder.
+        part_sizes = [part_size] * (num_parts - 1)
+        part_sizes.append(file_size - part_size * (num_parts - 1))
+
         data_part_paths = part_paths[1:]
         with open(filepath, 'rb') as f:
-            for i, part_path in enumerate(data_part_paths):
-                if i == num_parts - 1:
-                    data = f.read()
-                else:
-                    data = f.read(part_size)
-
-                if not data:
-                    break
-
+            for i, (part_path, size) in enumerate(zip(data_part_paths, part_sizes)):
                 progress = (i + 1) / num_parts * 100
                 print(f"  [{progress:5.1f}%] Creating {part_path.name}...", end="", flush=True)
 
                 if use_password:
+                    data = f.read(size)
                     try:
                         _zip_compress(data, part_path, password)
                     except Exception as e:
@@ -270,7 +341,7 @@ def split_file(filepath):
                         return False
                 else:
                     with open(part_path, 'wb') as pf:
-                        pf.write(data)
+                        copy_bytes(f, pf, size)
 
                 print(" OK")
 
@@ -307,7 +378,8 @@ def find_sequence_files(any_file):
 
     base_name, num_str = parts
 
-    if not num_str.isdigit():
+    # isdigit() alone accepts non-ASCII digits like '²' that int() rejects.
+    if not (num_str.isascii() and num_str.isdigit()):
         print(f"Error: File does not follow expected pattern (name_number{extension}).")
         return None, None, None, False
 
@@ -324,6 +396,11 @@ def find_sequence_files(any_file):
 
     i = 1
     while True:
+        # Indexes inside a sequence never have more digits than the padding
+        # width (width is derived from the part count when splitting), so a
+        # longer name can only belong to a different split of the same file.
+        if len(str(i)) > padding_width:
+            break
         part_name = f"{base_name}_{str(i).zfill(padding_width)}{extension}"
         part_path = parent / part_name
         if part_path.exists():
@@ -334,6 +411,14 @@ def find_sequence_files(any_file):
 
     if not sequence_files:
         print("Error: No files found in sequence.")
+        return None, None, None, False
+
+    # The provided file must be inside the detected sequence; if it is not,
+    # there is a gap (missing parts) between the sequence start and it.
+    given = filepath.resolve()
+    if all(p.resolve() != given for p in sequence_files):
+        print(f"Error: '{filepath.name}' is not part of the detected sequence.")
+        print("       One or more earlier parts are missing.")
         return None, None, None, False
 
     if not has_part_0:
@@ -395,6 +480,10 @@ def join_files(first_file):
     # Set data_files now so we never accidentally include part 0 in reconstruction.
     data_files = sequence_files[1:] if has_part_0 else sequence_files
 
+    if not data_files:
+        print("Error: No data parts found (only the checksum file exists).")
+        return False
+
     if has_part_0:
         md5_hash, stored_name, needs_password = extract_md5_info(sequence_files[0], is_compressed, None)
 
@@ -409,9 +498,16 @@ def join_files(first_file):
 
         if md5_hash and stored_name:
             original_md5 = md5_hash
-            original_name = stored_name
+            # Keep only the base name: a crafted part 0 could otherwise carry
+            # path separators and make the output land outside this directory.
+            safe_name = os.path.basename(stored_name.replace('\\', '/'))
+            if safe_name != stored_name:
+                print(f"Warning: stored filename '{stored_name}' contains a path;"
+                      f" using '{safe_name}' instead.")
+            original_name = safe_name or None
             print(f"Detected MD5 checksum: {original_md5}")
-            print(f"Original filename: {original_name}")
+            if original_name:
+                print(f"Original filename: {original_name}")
             print()
 
     elif is_compressed and data_files:
@@ -424,14 +520,18 @@ def join_files(first_file):
     if original_name:
         output_name = original_name
         print(f"Using original filename: {output_name}")
-        response = input("Change name? (Enter to keep, or type new name): ").strip()
+        response = ask("Change name? (Enter to keep, or type new name): ").strip()
         if response:
             output_name = response
     else:
-        user_input = input(f"Output filename (e.g.: {base_name}.jpg): ").strip()
+        user_input = ask(f"Output filename (e.g.: {base_name}.jpg): ").strip()
         output_name = user_input if user_input else base_name
 
     output_path = Path(first_file).parent / output_name
+
+    if any(p.resolve() == output_path.resolve() for p in sequence_files):
+        print("Error: Output filename matches one of the fragment files.")
+        return False
 
     if output_path.exists():
         if not ask_overwrite(str(output_path)):
@@ -441,6 +541,7 @@ def join_files(first_file):
     print()
     print(f"Reconstructing '{output_name}'...")
 
+    error = None
     try:
         with open(output_path, 'wb') as outfile:
             for i, part_path in enumerate(data_files):
@@ -450,27 +551,29 @@ def join_files(first_file):
                 if is_compressed:
                     data, needs_pw = _zip_extract(part_path, password)
                     if needs_pw:
-                        print(" Error!")
-                        print("Error: Wrong password.")
-                        try:
-                            output_path.unlink()
-                        except FileNotFoundError:
-                            pass
-                        return False
+                        error = "Wrong password."
+                        break
                     if data is None:
-                        print(" Error!")
-                        print(f"Error: Could not extract data from {part_path.name}. Archive may be corrupted.")
-                        try:
-                            output_path.unlink()
-                        except FileNotFoundError:
-                            pass
-                        return False
+                        error = (f"Could not extract data from {part_path.name}."
+                                 " Archive may be corrupted.")
+                        break
                     outfile.write(data)
                 else:
                     with open(part_path, 'rb') as pf:
-                        outfile.write(pf.read())
+                        shutil.copyfileobj(pf, outfile, COPY_CHUNK_SIZE)
 
                 print(" OK")
+
+        if error:
+            # Remove the partial output only now that the file is closed:
+            # unlinking an open file fails on Windows.
+            print(" Error!")
+            print(f"Error: {error}")
+            try:
+                output_path.unlink()
+            except OSError:
+                pass
+            return False
 
         print()
         print(f"File reconstructed: {output_path}")
@@ -492,7 +595,7 @@ def join_files(first_file):
 
         print()
 
-        response = input("Delete fragment files? (y/n): ").strip().lower()
+        response = ask("Delete fragment files? (y/n): ").strip().lower()
         if response in ['y', 'yes']:
             print()
             print("Deleting fragments...")
@@ -533,12 +636,17 @@ Examples:
 
     args = parser.parse_args()
 
-    check_dependencies()
+    try:
+        check_dependencies()
 
-    if args.split:
-        success = split_file(args.file)
-    else:
-        success = join_files(args.file)
+        if args.split:
+            success = split_file(args.file)
+        else:
+            success = join_files(args.file)
+    except KeyboardInterrupt:
+        print()
+        print("Operation cancelled by user.")
+        sys.exit(130)
 
     sys.exit(0 if success else 1)
 
