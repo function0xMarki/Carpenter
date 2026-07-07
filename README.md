@@ -4,6 +4,7 @@ Command-line tool to split files into multiple parts and reconstruct them later.
 <div align="center">
   
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![danifus-pyzipper](https://img.shields.io/badge/danifus-pyzipper-green.svg)
 [![License](https://img.shields.io/badge/MIT.License-yellow.svg)](LICENSE)
 </div>
 
