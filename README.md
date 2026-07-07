@@ -1,6 +1,11 @@
 # Carpenter
-
 Command-line tool to split files into multiple parts and reconstruct them later. Supports ZIP compression with AES-256 encryption.
+
+<div align="center">
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+[![License](https://img.shields.io/badge/MIT.License-yellow.svg)](LICENSE)
+</div>
+
 
 ## Features
 
@@ -138,7 +143,3 @@ Part `_0` contains metadata only. Parts `_1` onward contain the actual data.
   crafted archive cannot write outside the fragment directory
 
 > **Note:** Files created with password protection are only compatible with Carpenter or tools that support WinZip AES-256 encryption (such as 7-Zip or WinZip). Files created **without** a password are standard raw binary parts with no container format.
-
-## License
-
-MIT License
